@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
  const isNetlify = Boolean(process.env.NETLIFY);
  const adapter = isNetlify
   ? adapterNetlify()
-  : adapterBun({ envPrefix: 'APP_', serverOptions: { port } });
+  : adapterBun({ envPrefix: 'APP_' });
  return {
   plugins: [sveltekit({ adapter, compilerOptions: { runes: ({ filename }) => filename.split(/[/\\]/).includes('node_modules') ? undefined : true } }), tailwindcss(), svelteTesting()],
   server: { port, strictPort: true }, preview: { port, strictPort: true },

@@ -7,4 +7,4 @@
 <section class="card auth-card"><h1>Login</h1><p class="muted">Gunakan akun reservasi ruanganmu.</p>
 {#if $user}<p>Kamu sudah login. <a href="/">Ke beranda</a></p>{:else}
 {#if error}<p class="error" role="alert">{error}</p>{/if}
-<form onsubmit={submit}><label>Email<input type="email" bind:value={email} autocomplete="username" required/></label><label>Password<input type="password" bind:value={password} autocomplete="current-password" required/></label><button disabled={busy}>{busy?'Memproses…':'Login'}</button></form><p>Belum punya akun? <a href="/auth/register">Daftar mahasiswa</a>.</p>{/if}</section>
+<form onsubmit={submit}><label for="username">Email<input id="username" name="username" type="email" bind:value={email} autocomplete="username" required/></label><label for="password">Password<input id="password" name="password" type="password" bind:value={password} autocomplete="current-password" required/></label><button id="btn-submit" type="submit" disabled={busy}>{busy?'Memproses…':'Login'}</button></form><p>Belum punya akun? <a href="/auth/register">Daftar mahasiswa</a>.</p>{/if}</section>

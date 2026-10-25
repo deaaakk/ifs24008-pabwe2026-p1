@@ -1,0 +1,18 @@
+import {render,screen,fireEvent,waitFor} from '@testing-library/svelte';
+import {user,ready} from '../features/auth/states/authStore';
+import {beforeEach,expect,it,vi} from 'vitest';
+const {page,request}=vi.hoisted(()=>({page:{url:new URL('http://localhost/rooms'),status:500,error:null as null|{message:string}},request:vi.fn()}));
+vi.mock('$app/state',()=>({page}));
+vi.mock('#helpers/apiHelper',()=>({apiRequest:request}));
+import Fixture from './Layout.test.svelte';
+import ErrorPage from './+error.svelte';
+import {ssr} from './+layout';
+const admin={id:1,name:'Admin',email:'admin@del.ac.id',role:'admin' as const,class_name:'',phone:''};
+beforeEach(()=>{vi.resetAllMocks();page.url=new URL('http://localhost/rooms');user.set(null);ready.set(false);});
+it('layout menunggu pemeriksaan sesi',()=>{request.mockReturnValue(new Promise(()=>{}));render(Fixture);expect(screen.getByText('Memeriksa sesi…')).toBeInTheDocument();expect(ssr).toBe(false);});
+it('tamu melihat ajakan login setelah sesi gagal',async()=>{request.mockRejectedValue(new Error('401'));render(Fixture);expect(await screen.findByText('Selamat datang')).toBeInTheDocument();});
+it('halaman autentikasi langsung merender konten',()=>{page.url=new URL('http://localhost/auth/register');request.mockReturnValue(new Promise(()=>{}));render(Fixture);expect(screen.getByText('Konten pengujian')).toBeInTheDocument();});
+it.each(['admin','ketua','mahasiswa'] as const)('navigasi sesuai peran %s',async(role)=>{request.mockResolvedValue({...admin,role});render(Fixture);await screen.findByRole('button',{name:'Logout'});expect(screen.queryByRole('link',{name:'Kelola Pengguna'})!==null).toBe(role==='admin');expect(screen.queryByRole('link',{name:'+ Buat Reservasi'})!==null).toBe(role==='ketua');expect(screen.getByText('Konten pengujian')).toBeInTheDocument();});
+it('logout berhasil',async()=>{request.mockResolvedValueOnce(admin).mockResolvedValueOnce(undefined);render(Fixture);await fireEvent.click(await screen.findByRole('button',{name:'Logout'}));expect(await screen.findByText('Selamat datang')).toBeInTheDocument();});
+it('logout gagal',async()=>{request.mockResolvedValueOnce(admin).mockRejectedValueOnce(new Error('Logout gagal'));render(Fixture);await fireEvent.click(await screen.findByRole('button',{name:'Logout'}));expect(await screen.findByRole('alert')).toHaveTextContent('Logout gagal');});
+it('error tanpa pesan memakai pesan cadangan',()=>{render(ErrorPage);expect(screen.getByRole('heading',{name:'500'})).toBeInTheDocument();});

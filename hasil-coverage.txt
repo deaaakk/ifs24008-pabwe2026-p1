@@ -1,0 +1,40 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> reservasi-ruangan-pabwe2026-p6-sveltekit@0.0.1 test:coverage
+> vitest run --coverage
+
+
+ RUN  v5.0.5 /workspace/scratch/ecc25d957faf/reservasi-terpisah/frontend
+      Coverage enabled with v8
+
+
+ Test Files  8 passed (8)
+      Tests  73 passed (73)
+   Start at  23:43:39
+   Duration  6.49s (transform 34%, environment 32%, import 11%, tests 11%, setup 10%, worker 2%)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |     100 |    87.97 |     100 |     100 |                   
+ ...ashboard/pages |     100 |    79.16 |     100 |     100 |                   
+  HomePage.svelte  |     100 |    79.16 |     100 |     100 | 26,30-36,45       
+ ...rvations/pages |     100 |    83.07 |     100 |     100 |                   
+  HomePage.svelte  |     100 |    81.48 |     100 |     100 | 50-73             
+  NewPage.svelte   |     100 |    84.21 |     100 |     100 | 42,59,72          
+ routes            |     100 |    94.44 |     100 |     100 |                   
+  +layout.svelte   |     100 |    93.75 |     100 |     100 | 22                
+ routes/profile    |     100 |       90 |     100 |     100 |                   
+  +page.svelte     |     100 |       90 |     100 |     100 | 13                
+ routes/users      |     100 |       80 |     100 |     100 |                   
+  +page.svelte     |     100 |       80 |     100 |     100 | 13                
+-------------------|---------|----------|---------|---------|-------------------
+
+=============================== Coverage summary ===============================
+Statements   : 100% ( 774/774 )
+Branches     : 87.97% ( 161/183 )
+Functions    : 100% ( 162/162 )
+Lines        : 100% ( 253/253 )
+================================================================================
+ERROR: Coverage for branches (87.97%) does not meet global threshold (100%)

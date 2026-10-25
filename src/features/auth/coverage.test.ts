@@ -1,0 +1,43 @@
+import {fireEvent,render,screen,waitFor} from '@testing-library/svelte';
+import {beforeEach,it,expect,vi} from 'vitest';
+import {get} from 'svelte/store';
+const {request,go}=vi.hoisted(()=>({request:vi.fn(),go:vi.fn()}));
+vi.mock('#helpers/apiHelper',()=>({apiRequest:request}));
+vi.mock('$app/navigation',()=>({goto:go}));
+import {user,ready,owns,restoreSession} from './states/authStore';
+import Users from '../../routes/users/+page.svelte';
+import Profile from '../../routes/profile/+page.svelte';
+import Register from '../../routes/auth/register/+page.svelte';
+const admin={id:1,name:'Admin',email:'admin@test.id',role:'admin' as const,class_name:'',phone:''};
+const student={...admin,id:2,name:'Mahasiswa',role:'mahasiswa' as const,class_name:'IF 1'};
+beforeEach(()=>{vi.resetAllMocks();user.set(admin);ready.set(true);});
+it('pemilik dan pemulihan sesi',async()=>{expect(owns(1)).toBe(true);expect(owns(2)).toBe(false);request.mockResolvedValue(student);await restoreSession();expect(get(user)).toEqual(student);user.set(null);expect(owns(1)).toBe(false);});
+it('pengguna selain admin tidak mengambil daftar pengguna',()=>{user.set(student);render(Users);expect(screen.getByText('Halaman ini khusus admin.')).toBeInTheDocument();expect(request).not.toHaveBeenCalled();});
+it('daftar kosong dan kegagalan load pengguna',async()=>{request.mockRejectedValue(new Error('Tidak tersedia'));render(Users);expect(await screen.findByRole('alert')).toHaveTextContent('Tidak tersedia');expect(screen.getByText('Belum ada pengguna.')).toBeInTheDocument();});
+it('admin mengubah peran dan memuat ulang; peran sendiri terkunci',async()=>{request.mockResolvedValue([admin,student]);render(Users);const select=await screen.findByLabelText('Peran Mahasiswa');expect(screen.getByLabelText('Peran Admin')).toBeDisabled();await fireEvent.change(select,{target:{value:'ketua'}});await waitFor(()=>expect(request).toHaveBeenCalledWith('/users/2/role',{method:'PATCH',body:'{"role":"ketua"}'}));await waitFor(()=>expect(select).not.toBeDisabled());});
+it('gagal mengubah peran menampilkan pesan',async()=>{request.mockResolvedValue([student]);render(Users);const select=await screen.findByLabelText('Peran Mahasiswa');request.mockRejectedValueOnce(new Error('Ditolak'));await fireEvent.change(select,{target:{value:'dosen'}});expect(await screen.findByRole('alert')).toHaveTextContent('Ditolak');});
+it('profil tamu tidak menampilkan form',()=>{user.set(null);render(Profile);expect(screen.queryByRole('button')).not.toBeInTheDocument();});
+it('gagal menyimpan profil',async()=>{request.mockRejectedValue(new Error('Profil gagal'));render(Profile);await fireEvent.input(screen.getByLabelText('Kelas'),{target:{value:'IF 2'}});await fireEvent.input(screen.getByLabelText('Nomor telepon'),{target:{value:'08123'}});await fireEvent.submit(screen.getByRole('button',{name:'Simpan Profil'}).closest('form')!);expect(await screen.findByRole('alert')).toHaveTextContent('Profil gagal');});
+it('password berhasil mengakhiri sesi dan menuju login',async()=>{request.mockResolvedValue(undefined);render(Profile);await fireEvent.input(screen.getByLabelText('Password lama'),{target:{value:'Lama12345'}});await fireEvent.input(screen.getByLabelText('Password baru'),{target:{value:'Baru12345'}});await fireEvent.submit(screen.getByRole('button',{name:'Ubah Password'}).closest('form')!);await waitFor(()=>expect(go).toHaveBeenCalledWith('/auth/login'));expect(get(user)).toBeNull();expect(request).toHaveBeenCalledWith('/users/me/password',{method:'PUT',body:JSON.stringify({current_password:'Lama12345',password:'Baru12345'})});});
+it('password lama salah ditampilkan',async()=>{request.mockRejectedValue(new Error('Password lama salah'));render(Profile);await fireEvent.submit(screen.getByRole('button',{name:'Ubah Password'}).closest('form')!);expect(await screen.findByRole('alert')).toHaveTextContent('Password lama salah');expect(get(user)).toEqual(admin);});
+it('pendaftaran mengirim data dan menampilkan kegagalan',async()=>{request.mockRejectedValue(new Error('Email sudah terdaftar'));render(Register);for(const [label,value] of [['Nama lengkap','Dea'],['Email','dea@test.id'],['Kelas','IF 1'],['Password','Password123']])await fireEvent.input(screen.getByLabelText(label),{target:{value}});await fireEvent.submit(screen.getByRole('button',{name:'Daftar'}).closest('form')!);expect(await screen.findByRole('alert')).toHaveTextContent('Email sudah terdaftar');expect(request).toHaveBeenCalledWith('/auth/register',{method:'POST',body:JSON.stringify({name:'Dea',email:'dea@test.id',password:'Password123',class_name:'IF 1'})});});
+
+it('daftar pengguna tetap tampil ketika API mengirim identitas kosong', async () => {
+ request.mockResolvedValue([{ ...student, name: null, email: null, class_name: null }]);
+ render(Users);
+ await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(2));
+ const cells = screen.getAllByRole('cell');
+ expect(cells[0].textContent?.trim()).toBe('');
+ expect(cells[1].textContent?.trim()).toBe('');
+ expect(cells[2]).toHaveTextContent('—');
+ expect(screen.getByRole('combobox')).toHaveValue('mahasiswa');
+ expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+it('peran kosong dari API tidak dianggap sebagai peran yang sah',async()=>{
+ request.mockResolvedValue([{...student,role:null}]);
+ render(Users);
+ const select=await screen.findByLabelText('Peran Mahasiswa');
+ expect((select as HTMLSelectElement).selectedIndex).toBe(-1);
+ expect(request).toHaveBeenCalledTimes(1);
+ expect(request).toHaveBeenCalledWith('/users');
+});

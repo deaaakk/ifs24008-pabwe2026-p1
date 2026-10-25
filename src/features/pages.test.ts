@@ -1,0 +1,83 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { user, ready } from './auth/states/authStore';
+import { beforeEach, expect, it, vi } from 'vitest';
+const { api, confirmDialog, go, page } = vi.hoisted(()=>({api:{rooms:vi.fn(),reservations:vi.fn(),availability:vi.fn(),createRoom:vi.fn(),updateRoom:vi.fn(),deleteRoom:vi.fn(),createReservation:vi.fn(),setStatus:vi.fn(),deleteReservation:vi.fn()},confirmDialog:vi.fn(),go:vi.fn(),page:{url:new URL('http://localhost/reservations/new?room=1')}}));
+vi.mock('#lib/api',()=>({api,todayISO:()=> '2026-11-01'}));
+vi.mock('#helpers/toolsHelper',()=>({showConfirmDialog:confirmDialog}));
+vi.mock('$app/navigation',()=>({goto:go}));
+vi.mock('$app/state',()=>({page}));
+import Dashboard from '../routes/+page.svelte';
+import Rooms from '../routes/rooms/+page.svelte';
+import Reservations from '../routes/reservations/+page.svelte';
+import NewReservation from '../routes/reservations/new/+page.svelte';
+const room={id:1,name:'Lab A',location:'Gedung A',capacity:10,facilities:'AC'};
+const reservation={id:1,room_id:1,room_name:'Lab A',borrower_name:'Ani',purpose:'Rapat',date:'2026-11-01',start_time:'09:00',end_time:'10:00',status:'pending'};
+beforeEach(()=>{
+ page.url=new URL('http://localhost/reservations/new?room=1');vi.resetAllMocks();user.set({id:1,name:'Budi',email:'test@del.ac.id',role:'ketua',class_name:'IF A',phone:''});ready.set(true);api.rooms.mockResolvedValue([room]);api.reservations.mockResolvedValue([reservation]);api.availability.mockResolvedValue({booked:[]});confirmDialog.mockResolvedValue(true);
+});
+it('dashboard menampilkan jadwal aktif',async()=>{render(Dashboard);expect(await screen.findByText(/Terpakai:/)).toHaveTextContent('09:00-10:00');});
+it('dashboard menampilkan ruangan kosong',async()=>{api.reservations.mockResolvedValue([]);render(Dashboard);expect(await screen.findByText('Kosong sepanjang hari')).toBeInTheDocument();});
+it('dashboard menampilkan keadaan tanpa ruangan',async()=>{api.rooms.mockResolvedValue([]);render(Dashboard);expect(await screen.findByText(/Belum ada ruangan/)).toBeInTheDocument();});
+it('dashboard menampilkan kegagalan API',async()=>{api.rooms.mockRejectedValue(new Error('Offline'));render(Dashboard);expect(await screen.findByText(/Offline/)).toBeInTheDocument();});
+it('CRUD ruangan tambah, ubah, batal dan hapus',async()=>{
+ user.update(u=>u?{...u,role:'admin'}:null);render(Rooms);await screen.findByRole('cell',{name:'Lab A'});
+ await fireEvent.input(screen.getByLabelText('Nama'),{target:{value:'Lab B'}});
+ await fireEvent.input(screen.getByLabelText('Lokasi'),{target:{value:'Gedung B'}});
+ await fireEvent.submit(screen.getByRole('button',{name:'Tambah'}).closest('form')!);
+ await waitFor(()=>expect(api.createRoom).toHaveBeenCalled());
+ await fireEvent.click(screen.getByRole('button',{name:'Ubah'}));
+ expect(screen.getByLabelText('Nama')).toHaveValue('Lab A');
+ await fireEvent.submit(screen.getByRole('button',{name:'Simpan'}).closest('form')!);
+ await waitFor(()=>expect(api.updateRoom).toHaveBeenCalledWith(1,expect.objectContaining({name:'Lab A'})));
+ await fireEvent.click(screen.getByRole('button',{name:'Ubah'}));await fireEvent.click(screen.getByRole('button',{name:'Batal'}));
+ await fireEvent.click(screen.getByRole('button',{name:'Hapus'}));await waitFor(()=>expect(api.deleteRoom).toHaveBeenCalledWith(1));
+});
+it('gagal tambah ruangan',async()=>{api.createRoom.mockRejectedValue(new Error('Duplikat'));user.update(u=>u?{...u,role:'admin'}:null);render(Rooms);await screen.findByText('Lab A');await fireEvent.submit(screen.getByRole('button',{name:'Tambah'}).closest('form')!);expect(await screen.findByText('Duplikat')).toBeInTheDocument();});
+it('gagal muat ruangan',async()=>{api.rooms.mockRejectedValue(new Error('Offline'));user.update(u=>u?{...u,role:'admin'}:null);render(Rooms);expect(await screen.findByText('Offline')).toBeInTheDocument();});
+it('batal dan gagal hapus ruangan',async()=>{user.update(u=>u?{...u,role:'admin'}:null);render(Rooms);await screen.findByText('Lab A');confirmDialog.mockResolvedValueOnce(false);await fireEvent.click(screen.getByRole('button',{name:'Hapus'}));expect(api.deleteRoom).not.toHaveBeenCalled();api.deleteRoom.mockRejectedValue(new Error('Gagal hapus'));await fireEvent.click(screen.getByRole('button',{name:'Hapus'}));expect(await screen.findByText('Gagal hapus')).toBeInTheDocument();});
+it('reservasi: filter, setujui, tolak, batal dan hapus',async()=>{
+ user.update(u=>u?{...u,role:'admin'}:null);render(Reservations);await screen.findByText('Ani');
+ await fireEvent.click(screen.getByRole('button',{name:'Terapkan'}));
+ for(const [label,status] of [['Setujui','approved'],['Tolak','rejected'],['Batalkan','cancelled']]){
+ await fireEvent.click(screen.getByRole('button',{name:label}));await waitFor(()=>expect(api.setStatus).toHaveBeenCalledWith(1,status));}
+ await fireEvent.click(screen.getByRole('button',{name:'Hapus'}));await waitFor(()=>expect(api.deleteReservation).toHaveBeenCalledWith(1));
+});
+it('reservasi gagal muat',async()=>{api.reservations.mockRejectedValue(new Error('Offline'));render(Reservations);expect(await screen.findByText('Offline')).toBeInTheDocument();});
+it('reservasi gagal ubah status',async()=>{api.setStatus.mockRejectedValue(new Error('Bentrok'));user.update(u=>u?{...u,role:'admin'}:null);render(Reservations);await screen.findByText('Ani');await fireEvent.click(screen.getByRole('button',{name:'Setujui'}));expect(await screen.findByText('Bentrok')).toBeInTheDocument();});
+it('reservasi batal dan gagal hapus',async()=>{user.update(u=>u?{...u,role:'admin'}:null);render(Reservations);await screen.findByText('Ani');confirmDialog.mockResolvedValueOnce(false);await fireEvent.click(screen.getByRole('button',{name:'Hapus'}));expect(api.deleteReservation).not.toHaveBeenCalled();api.deleteReservation.mockRejectedValue(new Error('Gagal hapus'));await fireEvent.click(screen.getByRole('button',{name:'Hapus'}));expect(await screen.findByText('Gagal hapus')).toBeInTheDocument();});
+it('form pengajuan menampilkan jadwal dan menyimpan',async()=>{
+ api.availability.mockResolvedValue({booked:[reservation]});render(NewReservation);await screen.findByRole('option',{name:'Lab A (kap. 10)'});expect(await screen.findByText(/Sudah terpakai/)).toHaveTextContent('09:00-10:00');
+ await fireEvent.input(screen.getByLabelText('Nama peminjam'),{target:{value:'Budi'}});
+ await fireEvent.input(screen.getByLabelText('Keperluan'),{target:{value:'Diskusi'}});
+ await fireEvent.submit(screen.getByRole('button',{name:'Ajukan Reservasi'}).closest('form')!);
+ await waitFor(()=>expect(api.createReservation).toHaveBeenCalledWith(expect.objectContaining({borrower_name:'Budi',room_id:1})));
+ expect(go).toHaveBeenCalledWith('/reservations');
+});
+it('form pengajuan menangani jadwal bentrok',async()=>{api.createReservation.mockRejectedValue(new Error('Bentrok'));render(NewReservation);await screen.findByRole('option',{name:'Lab A (kap. 10)'});await fireEvent.submit(screen.getByRole('button',{name:'Ajukan Reservasi'}).closest('form')!);expect(await screen.findByText('Bentrok')).toBeInTheDocument();});
+it('form pengajuan menangani gagal jadwal',async()=>{api.availability.mockRejectedValue(new Error('Offline'));render(NewReservation);expect(await screen.findByText(/Gagal memuat jadwal/)).toBeInTheDocument();});
+it('reservasi kosong dan kegagalan memuat ruangan',async()=>{api.rooms.mockRejectedValue(new Error('Offline'));api.reservations.mockResolvedValue([]);render(Reservations);expect(await screen.findByText('Tidak ada reservasi.')).toBeInTheDocument();});
+it('reservasi terminal menyembunyikan tombol persetujuan',async()=>{api.reservations.mockResolvedValue([{...reservation,status:'cancelled'}]);render(Reservations);await screen.findByText('Ani');expect(screen.queryByRole('button',{name:'Setujui'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'Batalkan'})).not.toBeInTheDocument();});
+it('dashboard fasilitas kosong dan reservasi tidak aktif',async()=>{api.rooms.mockResolvedValue([{...room,facilities:''}]);api.reservations.mockResolvedValue([{...reservation,status:'cancelled'}]);render(Dashboard);expect(await screen.findByText('Tanpa fasilitas khusus')).toBeInTheDocument();expect(await screen.findByText('Kosong sepanjang hari')).toBeInTheDocument();});
+it('dashboard mahasiswa tidak menampilkan tautan pengajuan',async()=>{user.update(u=>u?{...u,role:'mahasiswa'}:null);api.reservations.mockResolvedValue([{...reservation,room_id:99}]);render(Dashboard);expect(await screen.findByText('Reservasi khusus ketua kelas dan dosen.')).toBeInTheDocument();expect(screen.queryByRole('link',{name:'Reservasi'})).toBeNull();});
+it('dashboard admin tanpa ruangan menawarkan tambah',async()=>{user.update(u=>u?{...u,role:'admin'}:null);api.rooms.mockResolvedValue([]);render(Dashboard);expect(await screen.findByRole('link',{name:'Tambah ruangan'})).toHaveAttribute('href','/rooms');});
+it('ruangan tanpa fasilitas dan form nilai kapasitas',async()=>{user.update(u=>u?{...u,role:'admin'}:null);api.rooms.mockResolvedValue([{...room,facilities:''}]);render(Rooms);await screen.findByText('Lab A');await fireEvent.input(screen.getByLabelText('Kapasitas'),{target:{value:'25'}});await fireEvent.input(screen.getByLabelText('Fasilitas'),{target:{value:'Proyektor'}});await fireEvent.submit(screen.getByRole('button',{name:'Tambah'}).closest('form')!);await waitFor(()=>expect(api.createRoom).toHaveBeenCalledWith(expect.objectContaining({capacity:25,facilities:'Proyektor'})));});
+it.each(['pending','approved','rejected','cancelled'])('pemilik melihat aksi sesuai status %s',async(status)=>{api.reservations.mockResolvedValue([{...reservation,user_id:1,status}]);render(Reservations);await screen.findByText('Ani');expect(screen.queryByRole('button',{name:'Batalkan'})!==null).toBe(['pending','approved'].includes(status));});
+it('mahasiswa tidak memiliki aksi reservasi dan filter dikirim',async()=>{user.update(u=>u?{...u,role:'mahasiswa'}:null);render(Reservations);await screen.findByText('Ani');expect(screen.queryByRole('button',{name:'Batalkan'})).toBeNull();await fireEvent.input(screen.getByLabelText('Tanggal'),{target:{value:'2026-12-01'}});await fireEvent.change(screen.getByLabelText('Ruangan'),{target:{value:'1'}});await fireEvent.change(screen.getByLabelText('Status'),{target:{value:'approved'}});await fireEvent.click(screen.getByRole('button',{name:'Terapkan'}));expect(api.reservations).toHaveBeenLastCalledWith(expect.objectContaining({date:'2026-12-01',status:'approved'}));});
+it('pengajuan menunggu sesi',()=>{ready.set(false);render(NewReservation);expect(screen.getByText('Memeriksa sesi…')).toBeInTheDocument();});
+it('pengajuan ditolak bagi mahasiswa',()=>{user.update(u=>u?{...u,role:'mahasiswa'}:null);render(NewReservation);expect(screen.getByText('Akses Reservasi Dibatasi')).toBeInTheDocument();});
+it('pengajuan memilih ruangan pertama bila query kosong',async()=>{page.url=new URL('http://localhost/reservations/new');render(NewReservation);await waitFor(()=>expect(api.availability).toHaveBeenCalledWith(1,'2026-11-01'));});
+it('pengajuan menangani daftar ruangan kosong',async()=>{page.url=new URL('http://localhost/reservations/new');api.rooms.mockResolvedValue([]);render(NewReservation);await waitFor(()=>expect(api.rooms).toHaveBeenCalled());expect(api.availability).not.toHaveBeenCalled();});
+it('pengajuan menangani kegagalan daftar ruangan',async()=>{page.url=new URL('http://localhost/reservations/new');api.rooms.mockRejectedValue(new Error('Daftar gagal'));render(NewReservation);expect(await screen.findByText('Daftar gagal')).toBeInTheDocument();});
+it('mengubah tanggal dan jam mengirim nilai terbaru',async()=>{api.rooms.mockResolvedValue([room,{...room,id:2,name:'Lab B'}]);render(NewReservation);await screen.findByRole('option',{name:'Lab A (kap. 10)'});await fireEvent.change(screen.getByLabelText('Ruangan'),{target:{value:'2'}});await fireEvent.input(screen.getByLabelText('Tanggal'),{target:{value:''}});await fireEvent.input(screen.getByLabelText('Tanggal'),{target:{value:'2026-12-01'}});await fireEvent.input(screen.getByLabelText('Jam mulai'),{target:{value:'11:00'}});await fireEvent.input(screen.getByLabelText('Jam selesai'),{target:{value:'12:00'}});await fireEvent.submit(screen.getByRole('button',{name:'Ajukan Reservasi'}).closest('form')!);await waitFor(()=>expect(api.createReservation).toHaveBeenCalledWith(expect.objectContaining({room_id:2,date:'2026-12-01',start_time:'11:00',end_time:'12:00'})));});
+it.each([false,true])('respons jadwal lama diabaikan setelah unmount, gagal=%s',async(fail)=>{let resolve!:(value:unknown)=>void,reject!:(reason:Error)=>void;api.availability.mockReturnValue(new Promise((a,b)=>{resolve=a;reject=b;}));const view=render(NewReservation);await waitFor(()=>expect(api.availability).toHaveBeenCalled());view.unmount();if(fail)reject(new Error('Lama'));else resolve({booked:[reservation]});await Promise.resolve();expect(screen.queryByText(/Gagal memuat jadwal/)).toBeNull();});
+it('mahasiswa tidak dapat membuka pengelolaan ruangan',()=>{user.update(u=>u?{...u,role:'mahasiswa'}:null);render(Rooms);expect(screen.getByText('Hanya admin yang dapat mengelola ruangan.')).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Tambah'})).toBeNull();});
+it('sesi yang berubah sebelum submit tidak dapat mengirim reservasi',async()=>{render(NewReservation);await screen.findByRole('option',{name:'Lab A (kap. 10)'});const form=screen.getByRole('button',{name:'Ajukan Reservasi'}).closest('form')!;user.set(null);form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await waitFor(()=>expect(screen.getByText('Akses Reservasi Dibatasi')).toBeInTheDocument());expect(api.createReservation).not.toHaveBeenCalled();});
+it('penurunan peran sebelum submit mencegah permintaan reservasi',async()=>{
+ render(NewReservation);
+ await screen.findByRole('option',{name:'Lab A (kap. 10)'});
+ const form=screen.getByRole('button',{name:'Ajukan Reservasi'}).closest('form')!;
+ user.update(u=>u?{...u,role:'mahasiswa'}:null);
+ form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+ await waitFor(()=>expect(screen.getByText('Akses Reservasi Dibatasi')).toBeInTheDocument());
+ expect(api.createReservation).not.toHaveBeenCalled();
+});
